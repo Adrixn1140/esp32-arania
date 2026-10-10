@@ -10,10 +10,13 @@
  *           ch15 -> pata trasera  izquierda (BL)
  *   Teclado (conector 1..7) -> GPIO 13(R1) 14(R2) 27(R3) 26(R4) 25(C1) 33(C2) 32(C3)
  *
- * MODO CALIBRACION. Al encender hace una secuencia automatica moviendo cada pata una por
- * una (sin teclado) para comprobar que los 4 servos responden; luego queda en reposo y
- * espera las teclas. Con cada tecla solo se mueve la pata indicada, lento y volviendo al
- * neutro. Sirve para validar canal, sentido (invert) y rango mecanico de cada servo.
+ * MODO CALIBRACION CON DIAGNOSTICO. Al encender:
+ *   1. Escanea el bus I2C y muestra todas las direcciones encontradas (para detectar
+ *      si el PCA9685 responde en 0x40 o en otra).
+ *   2. Si el PCA9685 no responde, avisa con el motivo mas probable y se queda esperando
+ *      (no se reinicia en bucle).
+ *   3. Si responde, mueve cada servo uno por uno (sin teclado) para comprobar que los 4
+ *      responden; luego queda en reposo esperando teclas.
  *
  * Teclado:
  *   '1' = barre solo FR (ch12)
@@ -28,6 +31,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "driver/i2c_master.h"
+#include "driver/gpio.h"
 #include "pca9685.h"
 #include "keypad.h"
 #include "legs.h"
@@ -42,11 +46,51 @@ static const char *TAG = "app_main";
 
 #define SERVO_FREQ_HZ  50
 
+/* Si tu placa PCA9685 tiene el pin OE desactivado por defecto (activo en LOW),
+ * cablea OE a un GPIO del ESP32 y pon su numero aqui para que el firmware lo lleve
+ * a LOW y habilite las salidas. -1 = no tocar OE (cableado a GND o con jumper). */
+#define PCA9685_OE_GPIO (-1)
+
 #define SCAN_PERIOD_MS 20
 
-static esp_err_t scan_address(i2c_master_bus_handle_t bus, uint8_t addr)
+static void enable_outputs(void)
 {
-    return i2c_master_probe(bus, addr, I2C_TIMEOUT_MS);
+#if PCA9685_OE_GPIO >= 0
+    gpio_config_t io = {
+        .pin_bit_mask = 1ULL << PCA9685_OE_GPIO,
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&io));
+    gpio_set_level(PCA9685_OE_GPIO, 0); /* OE activo en LOW = salidas habilitadas */
+    ESP_LOGI(TAG, "OE_GPIO %d -> LOW (salidas habilitadas)", PCA9685_OE_GPIO);
+#endif
+}
+
+static void scan_bus(i2c_master_bus_handle_t bus)
+{
+    int found = 0;
+    ESP_LOGI(TAG, "I2C scan (0x03..0x77)...");
+    for (uint8_t addr = 0x03; addr <= 0x77; addr++) {
+        esp_err_t err = i2c_master_probe(bus, addr, I2C_TIMEOUT_MS);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "found device: 0x%02X", addr);
+            found++;
+        }
+    }
+    if (found == 0) {
+        ESP_LOGE(TAG, "NO devices found on I2C: revisa SDA->GPIO21, SCL->GPIO22, VDD->3V3 y GND");
+    } else if (found == 1) {
+        ESP_LOGI(TAG, "bus OK: 1 dispositivo encontrado (el esperado es PCA9685 en 0x40)");
+    }
+}
+
+static void i2c_ok(void)
+{
+    ESP_LOGI(TAG, "hardware listo. Nota servos: requieren V+ del PCA9685 -> 5V externo,");
+    ESP_LOGI(TAG, "GND a tierra comun, y el pin OE del PCA9685 en LOW (GND o GPIO).");
 }
 
 void app_main(void)
@@ -64,11 +108,8 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &bus));
 
-    if (scan_address(bus, PCA9685_ADDR_DEFAULT) != ESP_OK) {
-        ESP_LOGE(TAG, "PCA9685 not found at 0x%02X - check wiring/pull-ups", PCA9685_ADDR_DEFAULT);
-    } else {
-        ESP_LOGI(TAG, "PCA9685 detected at 0x%02X", PCA9685_ADDR_DEFAULT);
-    }
+    scan_bus(bus);
+    enable_outputs();
 
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
@@ -79,13 +120,25 @@ void app_main(void)
 
     vTaskDelay(pdMS_TO_TICKS(300));
 
-    ESP_ERROR_CHECK(pca9685_init(dev, SERVO_FREQ_HZ));
+    esp_err_t err = pca9685_init(dev, SERVO_FREQ_HZ);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "pca9685_init fallo (%s): el PCA9685 no confirma los registros.",
+                 esp_err_to_name(err));
+        ESP_LOGE(TAG, "Motivos probables: placa sin power (VDD a 3V3 o bus muerto).");
+        ESP_LOGE(TAG, "Revisa SDA/SCL/3V3/GND. Reinicia cuando corrijas.");
+        while (true) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+    }
 
     keypad_init();
     legs_rest_all(dev);
+
+    ESP_LOGI(TAG, "------ DIAGNOSTICO 0x40 OK: muevo cada servo uno a uno ------");
     test_mode_boot_sequence(dev);
 
     ESP_LOGI(TAG, "modo calibracion: teclas 1=FR 2=BR 3=FL 4=BL 5=todas 0=reposo");
+    i2c_ok();
 
     while (true) {
         int col, row;

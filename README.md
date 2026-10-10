@@ -96,6 +96,19 @@ Qué validar en hardware:
 
 Después de calibrar, se habilitan las marchas (wave/trot), giro y WiFi (roadmap).
 
+## Diagnóstico rápido (si no responde ningún servo)
+
+El firmware ya escanea el bus I2C al arrancar y loguea todo. Fíjate en el monitor:
+
+1. **`found device: 0x40`** aparece → el PCA9685 está detectado y el I2C funciona. Si NO aparece,
+   revisa SDA→GPIO21, SCL→GPIO22, VDD→3V3 y GND común del PCA9685.
+2. **`pca9685_init fallo`** → el módulo no confirma registros: probablemente sin alimentación.
+3. Si el bus está OK pero **los servos no giran**: revisa la power de los servos:
+   - **V+** del PCA9685 → **5 V externo** (NO 3V3). Sin esto ningún servo se mueve aunque el I2C funcione.
+   - **GND** externo común con el ESP32.
+   - Pin **OE** del PCA9685 en **LOW** (a GND o a un GPIO con `PCA9685_OE_GPIO` en `app_main.c`).
+     En muchas placas, si OE queda flotando/alto, las salidas están deshabilitadas y todo queda mudo.
+
 ## Compilar y flashear
 
 Requisitos: ESP-IDF **v6.1** (ruta usada: `~/.espressif/v6.1/esp-idf`).
