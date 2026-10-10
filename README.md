@@ -7,8 +7,9 @@ Un PCA9685 de 16 canales PWM a 50 Hz controla un servo por pata.
 
 - 4 patas en postura **sprawling (reptiliana)**: cada SG90 gira sobre un eje vertical (yaw)
   y "adelante/atrás" es un barrido horizontal.
-- **Marcha wave** (una pata a la vez) en bucle, orden contralateral `FR → BL → FL → BR`.
-- Teclado **HX-543 (3×4)** cableado y validado: controla marcha, sentido y velocidad.
+- **Modo calibración** (uno a uno): al encender no se mueve nada; cada tecla mueve una sola
+  pata (lenta) para validar canal, sentido (`invert`) y rango mecánico antes de montar las marchas.
+- Marchas (wave/trot), giro y control WiFi: en roadmap, cuando el mapeo esté calibrado.
 
 ## Wiring
 
@@ -56,7 +57,9 @@ Tabla de teclas configurable en `main/keypad.c` (constante `s_keys`).
 
 ```
 main/
-  app_main.c     Araña: LEGS[] (ch12..ch15), marcha wave, reposo en 0°, control por teclado
+  app_main.c     Init I2C + PCA9685 + keypad; modo calibración controlado por teclado
+  legs.c/h       LEGS[] (ch12..ch15) + aplicar invert; set_angle y rest
+  test_mode.c/h  Barrido lento de una pata o de las 4 (sincronizado)
   pca9685.c/h    Driver PCA9685: init (50 Hz), set_angle (-90..+90), set_channel_us
   keypad.c/h     Driver HX-543 3x4: scan por columnas, debounce, tecla por pulsacion
   CMakeLists.txt
@@ -64,27 +67,32 @@ main/
 
 - **Ángulos**: rango **-90…+90** del driver; **neutro 0°** = postura sprawling con patas abiertas.
   Mapeo del driver: -90° → 500 µs, 0° → 1450 µs, +90° → 2400 µs.
-- **Barrido**: `STEP_DEG = 40`, así cada pata barre de `-40°` a `+40°` alrededor del neutro.
+- **Rango de test**: `TEST_STEP_DEG = 40`, barrido lento `TEST_MS_PER_DEG = 30`.
 
-### Marcha wave
+## Modo calibración
 
-Una pata a la vez, en bucle continuo, orden contralateral `FR → BL → FL → BR`. Cada pata:
-
-```
-neutro (0) ──▶ adelante (dir·40) ──▶ atrás (−dir·40) ──▶ neutro (0)
-```
-
-mientras las otras 3 permanecen en neutro. `dir` es el sentido (`+1` adelante, `-1` atrás).
-Solo la tarea `walk_task` mueve los servos; el bucle principal solo lee el teclado y
-actualiza el estado (marcha, sentido, velocidad).
+Al encender **no hay movimiento**: todas las patas quedan en neutro 0°. Solo se mueve la
+pata indicada con una tecla, lento (0° → +40° → 0° → −40° → 0°) y vuelve a neutro.
 
 ### Teclas
 
-- `'1'` iniciar / parar la marcha.
-- `'2'` invertir sentido (adelante / atrás).
-- `'3'` subir velocidad (bajar `ms/grado`, mínimo 4).
-- `'4'` bajar velocidad (subir `ms/grado`, máximo 40).
-- `'0'` parar y reposo total (todas las patas a neutro).
+- `'1'` barre solo **FR** (ch12)
+- `'2'` barre solo **BR** (ch13)
+- `'3'` barre solo **FL** (ch14)
+- `'4'` barre solo **BL** (ch15)
+- `'5'` barre las **4 patas juntas**, lento y sincronizado
+- `'0'` reposo (todas a neutro)
+
+Qué validar en hardware:
+
+1. **Canal**: la pata física que se mueve debe ser la del log (`FR dlch12`, etc.). Si no, cambia
+   el canal en `LEGS[]` (`main/legs.c`).
+2. **Sentido/invert**: si una pata izquierda (FL/BL) barre al revés que su espejo derecho,
+   cambia `invert` (true↔false) solo para esa pata en `LEGS[]`.
+3. **Rango mecánico**: que +40°/−40° no truenen ni choquen piezas; si hace falta, ajusta
+   `TEST_STEP_DEG` y vuelve a probar.
+
+Después de calibrar, se habilitan las marchas (wave/trot), giro y WiFi (roadmap).
 
 ## Compilar y flashear
 

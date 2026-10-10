@@ -23,30 +23,33 @@ idf.py set-target esp32                         # una sola vez (target = ESP32 c
 CMakeLists.txt            # project(esp32_arania)
 sdkconfig.defaults        # CONFIG_IDF_TARGET="esp32"
 main/
-  app_main.c              # init I2C + PCA9685 + keypad; LEGS[] ch12..ch15; marcha wave; control por teclas
+  app_main.c              # init I2C + PCA9685 + keypad; MODO CALIBRACION por teclas
+  legs.c/h                # LEGS[] (ch12=FR, ch13=BR, ch14=FL, ch15=BL) + invert; set_angle/rest
+  test_mode.c/h           # barrido lento de una pata o de las 4 (sincronizado)
   pca9685.c/h             # driver PCA9685 (I2C 0x40): init 50Hz, set_angle -90..+90
   keypad.c/h              # driver HX-543: scan columnas en LOW + filas pull-up, debounce
-  CMakeLists.txt          # SRCS: app_main.c pca9685.c keypad.c
-README.md                 # wiring, marcha wave, teclas, comandos
+  CMakeLists.txt          # SRCS: app_main.c legs.c test_mode.c pca9685.c keypad.c
+README.md                 # wiring, modo calibracion, teclas, comandos
 ```
 
 ## Convenciones de código
 
 - C (estándar del proyecto), siguiendo estilo de ESP-IDF / ejemplos existentes.
 - No añadir comentarios salvo que aporten contexto (p. ej. fórmulas del datasheet).
-- Driver de la araña en `app_main.c`: ángulos **-90..+90**, **neutro 0°** (sprawling, patas abiertas).
-  - `STEP_DEG = 40`: cada pata barre de -40 a +40 alrededor del neutro.
-  - Mapeo: `LEGS[]` = ch12 FR, ch13 BR, ch14 FL, ch15 BL. Patas izquierdas con `invert = true`.
-- **Solo `walk_task` mueve los servos.** El bucle principal de `app_main` solo lee el teclado
-  y actualiza `g_walking`, `g_dir`, `g_step_ms` (variables `volatile`).
-- Toda parada/animación debe terminar en `rest_all(dev)` (todas las patas a neutro 0°).
+- Tabla de patas y su `invert` viven SOLO en `main/legs.c` (`LEGS[]`); el resto del código
+  usa `legs_set_angle(dev, idx, grados)` / `legs_rest_all(dev)` y `legs_name()`/`legs_channel()`.
+- Mapeo: `LEGS[]` = ch12 FR, ch13 BR, ch14 FL, ch15 BL. Patas izquierdas con `invert = true`.
+- Ángulos del driver: **-90..+90**, **neutro 0°** (sprawling, patas abiertas).
+- **Estado actual: MODO CALIBRACION.** Al encender nada se mueve; cada tecla mueve una sola
+  pata (lenta). Las marchas/gait están en `git history` / roadmap y se montan sobre `legs.c`.
 - `pca9685_set_angle(dev, ch, grados)` acepta `int16_t` y acota fuera de rango.
 
-## Marcha wave
+## Modo calibración (test)
 
-Una pata a la vez, en bucle, orden contralateral `FR → BL → FL → BR`
-(`WAVE_ORDER[]` en `app_main.c`). Cada pata: `neutro → adelante → atrás → neutro`
-mientras las otras 3 quedan en neutro.
+- Teclas: 1=FR, 2=BR, 3=FL, 4=BL (una pata sola, lenta), 5=las 4 juntas, 0=reposo.
+- Cada barrido: 0° → +40° → 0° → −40° → 0° con `TEST_MS_PER_DEG=30` y vuelve a neutro.
+- Si una pata física no corresponde al canal, o una izquierda barre al revés de su espejo
+  derecho: ajustar `LEGS[]` en `main/legs.c`, no el cableado.
 
 ## Hardware / cableado (no cambiar sin confirmar con el usuario)
 
