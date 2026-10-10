@@ -1,0 +1,69 @@
+# AGENTS.md
+
+Guía para agentes/IA que trabajen en este repositorio. Proyecto de firmware ESP-IDF:
+araña cuadrúpeda con 4 servos SG90 via PCA9685 (I2C) y teclado HX-543 3x4.
+
+## Comandos
+
+```bash
+source ~/.espressif/v6.1/esp-idf/export.sh   # siempre antes de idf.py
+idf.py build                                    # compila
+idf.py -p /dev/ttyUSB0 flash                    # flashea (puerto del DevKit, CH340)
+idf.py -p /dev/ttyUSB0 monitor                  # monitor serie (salir: Ctrl+] o Ctrl+T X)
+idf.py set-target esp32                         # una sola vez (target = ESP32 clásico)
+```
+
+- Nunca editar `sdkconfig` ni `build/` (generados). Cambios de config van en `sdkconfig.defaults`.
+- Después de cualquier cambio: `idf.py build`. Si hay placa conectada, `flash` + `monitor` para validar.
+- El teclado se valida en hardware presionando teclas y mirando el monitor.
+
+## Estructura
+
+```
+CMakeLists.txt            # project(esp32_arania)
+sdkconfig.defaults        # CONFIG_IDF_TARGET="esp32"
+main/
+  app_main.c              # init I2C + PCA9685 + keypad; LEGS[] ch12..ch15; marcha wave; control por teclas
+  pca9685.c/h             # driver PCA9685 (I2C 0x40): init 50Hz, set_angle -90..+90
+  keypad.c/h              # driver HX-543: scan columnas en LOW + filas pull-up, debounce
+  CMakeLists.txt          # SRCS: app_main.c pca9685.c keypad.c
+README.md                 # wiring, marcha wave, teclas, comandos
+```
+
+## Convenciones de código
+
+- C (estándar del proyecto), siguiendo estilo de ESP-IDF / ejemplos existentes.
+- No añadir comentarios salvo que aporten contexto (p. ej. fórmulas del datasheet).
+- Driver de la araña en `app_main.c`: ángulos **-90..+90**, **neutro 0°** (sprawling, patas abiertas).
+  - `STEP_DEG = 40`: cada pata barre de -40 a +40 alrededor del neutro.
+  - Mapeo: `LEGS[]` = ch12 FR, ch13 BR, ch14 FL, ch15 BL. Patas izquierdas con `invert = true`.
+- **Solo `walk_task` mueve los servos.** El bucle principal de `app_main` solo lee el teclado
+  y actualiza `g_walking`, `g_dir`, `g_step_ms` (variables `volatile`).
+- Toda parada/animación debe terminar en `rest_all(dev)` (todas las patas a neutro 0°).
+- `pca9685_set_angle(dev, ch, grados)` acepta `int16_t` y acota fuera de rango.
+
+## Marcha wave
+
+Una pata a la vez, en bucle, orden contralateral `FR → BL → FL → BR`
+(`WAVE_ORDER[]` en `app_main.c`). Cada pata: `neutro → adelante → atrás → neutro`
+mientras las otras 3 quedan en neutro.
+
+## Hardware / cableado (no cambiar sin confirmar con el usuario)
+
+| Componente | Conexión |
+|---|---|
+| PCA9685 | SDA→GPIO21, SCL→GPIO22, VDD→3V3, GND común |
+| Servos | V+→5V externo, ch12=FR, ch13=BR, ch14=FL, ch15=BL |
+| Teclado HX-543 | conector 1..7 → GPIO 13(R1) 14(R2) 27(R3) 26(R4) 25(C1) 33(C2) 32(C3) |
+
+Si una tecla sale intercambiada en el monitor: ajustar `s_keys`/GPIOS en `main/keypad.c`,
+no el cableado. Si una pata gira al revés: ajustar `invert` en `LEGS[]`.
+
+## Entorno conocido
+
+- ESP-IDF v6.1 en `~/.espressif/v6.1/esp-idf` (export.sh creo el venv; si falta,
+  `IDF_PATH=~/.espressif/v6.1/esp-idf <idf>/install.sh esp32`).
+- Placa: ESP32 DevKit 1 (CH340, `/dev/ttyUSB0`).
+- Grupo `dialout` ya asignado; usuario puede flashear sin sudo.
+- Un `timeout ... idf.py monitor` puede dejar un `esp_idf_monitor` huérfano sujetando el puerto:
+  revisar con `fuser /dev/ttyUSB0` antes de flashear y matar el proceso si hace falta.
