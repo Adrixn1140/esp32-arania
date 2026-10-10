@@ -17,6 +17,12 @@ void test_mode_sweep_leg(i2c_master_dev_handle_t dev, int leg);
  */
 void test_mode_sweep_all(i2c_master_dev_handle_t dev);
 
+/**
+ * @brief Secuencia automatica al arrancar: barre cada pata una por una (sin teclado),
+ * con pausa entre ellas, y termina en reposo.
+ */
+void test_mode_boot_sequence(i2c_master_dev_handle_t dev);
+
 #ifdef __cplusplus
 }
 #endif

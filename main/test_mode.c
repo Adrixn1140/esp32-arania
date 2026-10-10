@@ -9,6 +9,7 @@ static const char *TAG = "test_mode";
 #define TEST_STEP_DEG   40
 #define TEST_MS_PER_DEG 30
 #define TEST_PAUSE_MS   300
+#define BOOT_BETWEEN_MS 1500
 
 static void ramp_leg(i2c_master_dev_handle_t dev, int leg, int16_t from, int16_t to)
 {
@@ -61,4 +62,22 @@ void test_mode_sweep_all(i2c_master_dev_handle_t dev)
     vTaskDelay(pdMS_TO_TICKS(TEST_PAUSE_MS));
     ramp_all(dev, -TEST_STEP_DEG, NEUTRAL_ANGLE);
     legs_rest_all(dev);
+}
+
+void test_mode_boot_sequence(i2c_master_dev_handle_t dev)
+{
+    ESP_LOGI(TAG, "boot test: moviendo cada pata una por una (sin teclado)");
+    for (int i = 0; i < LEG_COUNT; i++) {
+        ESP_LOGI(TAG, "boot test: patas '%s' ch%d ...", legs_name(i), legs_channel(i));
+        ramp_leg(dev, i, NEUTRAL_ANGLE, TEST_STEP_DEG);
+        vTaskDelay(pdMS_TO_TICKS(TEST_PAUSE_MS));
+        ramp_leg(dev, i, TEST_STEP_DEG, -TEST_STEP_DEG);
+        vTaskDelay(pdMS_TO_TICKS(TEST_PAUSE_MS));
+        ramp_leg(dev, i, -TEST_STEP_DEG, NEUTRAL_ANGLE);
+        if (i < LEG_COUNT - 1) {
+            vTaskDelay(pdMS_TO_TICKS(BOOT_BETWEEN_MS));
+        }
+    }
+    legs_rest_all(dev);
+    ESP_LOGI(TAG, "boot test: listo, todas en reposo");
 }

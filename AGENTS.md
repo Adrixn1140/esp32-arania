@@ -46,6 +46,8 @@ README.md                 # wiring, modo calibracion, teclas, comandos
 
 ## Modo calibración (test)
 
+- Al encender: `test_mode_boot_sequence()` mueve cada pata una por una sin teclado (para
+  verificar que responden), y luego queda en reposo esperando teclas.
 - Teclas: 1=FR, 2=BR, 3=FL, 4=BL (una pata sola, lenta), 5=las 4 juntas, 0=reposo.
 - Cada barrido: 0° → +40° → 0° → −40° → 0° con `TEST_MS_PER_DEG=30` y vuelve a neutro.
 - Si una pata física no corresponde al canal, o una izquierda barre al revés de su espejo

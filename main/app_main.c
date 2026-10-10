@@ -10,10 +10,10 @@
  *           ch15 -> pata trasera  izquierda (BL)
  *   Teclado (conector 1..7) -> GPIO 13(R1) 14(R2) 27(R3) 26(R4) 25(C1) 33(C2) 32(C3)
  *
- * MODO CALIBRACION (uno a uno). Al encender NO se mueve nada: todas las patas quedan
- * en neutro 0 grados (postura sprawling). Solo se mueve la pata que indiques con una
- * tecla, lento y volviendo al neutro. Sirve para validar canal, sentido (invert) y
- * rango mecanico de cada servo antes de montar las marchas.
+ * MODO CALIBRACION. Al encender hace una secuencia automatica moviendo cada pata una por
+ * una (sin teclado) para comprobar que los 4 servos responden; luego queda en reposo y
+ * espera las teclas. Con cada tecla solo se mueve la pata indicada, lento y volviendo al
+ * neutro. Sirve para validar canal, sentido (invert) y rango mecanico de cada servo.
  *
  * Teclado:
  *   '1' = barre solo FR (ch12)
@@ -83,9 +83,9 @@ void app_main(void)
 
     keypad_init();
     legs_rest_all(dev);
+    test_mode_boot_sequence(dev);
 
-    ESP_LOGI(TAG, "modo calibracion: inmobil hasta presionar una tecla");
-    ESP_LOGI(TAG, "keys: 1=FR 2=BR 3=FL 4=BL 5=todas 0=reposo");
+    ESP_LOGI(TAG, "modo calibracion: teclas 1=FR 2=BR 3=FL 4=BL 5=todas 0=reposo");
 
     while (true) {
         int col, row;

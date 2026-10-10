@@ -71,8 +71,10 @@ main/
 
 ## Modo calibración
 
-Al encender **no hay movimiento**: todas las patas quedan en neutro 0°. Solo se mueve la
-pata indicada con una tecla, lento (0° → +40° → 0° → −40° → 0°) y vuelve a neutro.
+Al encender ejecuta una **secuencia automática (sin teclado)**: barre cada pata una por una
+(`FR → BR → FL → BL`, lento, con pausa de 1.5 s entre cada una) para comprobar que los 4
+servos responden; al terminar vuelven a neutro. Después queda en reposo y solo se mueve la
+pata indicada con una tecla (0° → +40° → 0° → −40° → 0°) y vuelve a neutro.
 
 ### Teclas
 
