@@ -7,8 +7,9 @@ Un PCA9685 de 16 canales PWM a 50 Hz controla un servo por pata.
 
 - 4 patas en postura **sprawling (reptiliana)**: cada SG90 gira sobre un eje vertical (yaw)
   y "adelante/atrás" es un barrido horizontal.
-- **Modo calibración** (uno a uno): al encender no se mueve nada; cada tecla mueve una sola
-  pata (lenta) para validar canal, sentido (`invert`) y rango mecánico antes de montar las marchas.
+- **Modo posición fija (set-and-hold)**: al encender los 4 servos van a neutro 0° y quedan
+  **quietos** (sin barrido automático). Con el teclado se posiciona una pata a la vez y se
+  mantiene en el ángulo elegido para acomodarla. Las posiciones viven en RAM.
 - Marchas (wave/trot), giro y control WiFi: en roadmap, cuando el mapeo esté calibrado.
 
 ## Wiring
@@ -30,9 +31,9 @@ de ESP-IDF v6.1, 100 kHz, pull-ups internos, dirección del módulo `0x40`.
 | PCA9685 | Pata | Índice |
 |---|---|---|
 | ch12 | delantera derecha | FR |
-| ch13 | trasera derecha | BR |
-| ch14 | delantera izquierda | FL |
-| ch15 | trasera izquierda | BL |
+| ch13 | delantera izquierda | FL |
+| ch14 | trasera izquierda | BL |
+| ch15 | trasera derecha | BR |
 
 - Las patas **izquierdas** van montadas espejadas → `invert = true` en `LEGS[]`
   (`main/app_main.c`). Si una pata gira al revés en hardware, ajustar ese flag.
@@ -57,44 +58,49 @@ Tabla de teclas configurable en `main/keypad.c` (constante `s_keys`).
 
 ```
 main/
-  app_main.c     Init I2C + PCA9685 + keypad; modo calibración controlado por teclado
-  legs.c/h       LEGS[] (ch12..ch15) + aplicar invert; set_angle y rest
-  test_mode.c/h  Barrido lento de una pata o de las 4 (sincronizado)
-  pca9685.c/h    Driver PCA9685: init (50 Hz), set_angle (-90..+90), set_channel_us
+  app_main.c     Init I2C + PCA9685 + keypad; modo posición fija controlado por teclado
+  legs.c/h       LEGS[] (ch12..ch15) + invert/offset de neutro; set_angle y rest
+  test_mode.c/h  Barrido lento de una pata o de las 4 (legado, ya no se usa en boot)
+  pca9685.c/h    Driver PCA9685: init (50 Hz), set_angle (-90..+90), read_channel_us
   keypad.c/h     Driver HX-543 3x4: scan por columnas, debounce, tecla por pulsacion
   CMakeLists.txt
 ```
 
-- **Ángulos**: rango **-90…+90** del driver; **neutro 0°** = postura sprawling con patas abiertas.
+- **Ángulos**: rango **-90…+90** del driver; **neutro 0°** = pose natural capturada por pata.
   Mapeo del driver: -90° → 500 µs, 0° → 1450 µs, +90° → 2400 µs.
-- **Rango de test**: `TEST_STEP_DEG = 40`, barrido lento `TEST_MS_PER_DEG = 30`.
+- **Paso de posición**: `POS_STEP_DEG = 5` en `app_main.c` (`*`/`#`).
 
-## Modo calibración
+## Neutro capturado (NVS)
 
-Al encender ejecuta una **secuencia automática (sin teclado)**: barre cada pata una por una
-(`FR → BR → FL → BL`, lento, con pausa de 1.5 s entre cada una) para comprobar que los 4
-servos responden; al terminar vuelven a neutro. Después queda en reposo y solo se mueve la
-pata indicada con una tecla (0° → +40° → 0° → −40° → 0°) y vuelve a neutro.
+Al encender, el firmware carga los offsets de neutro de cada pata desde NVS. Si no existen,
+los **captura automáticamente** leyendo el pulso actual de los canales 12–15 del PCA9685 (la
+pose en la que dejaste las patas) y los guarda. Después `legs_rest_all()` **posiciona las 4
+patas solas en esa pose**, y lo repite en cada arranque. Así **0° = pata estirada/natural**.
 
 ### Teclas
 
-- `'1'` barre solo **FR** (ch12)
-- `'2'` barre solo **BR** (ch13)
-- `'3'` barre solo **FL** (ch14)
-- `'4'` barre solo **BL** (ch15)
-- `'5'` barre las **4 patas juntas**, lento y sincronizado
-- `'0'` reposo (todas a neutro)
+- `'1'` selecciona **FR** (ch12)  · `'2'` **FL** (ch13) · `'3'` **BL** (ch14) · `'4'` **BR** (ch15)
+- `'*'` / `'#'` restan/suman **5°** a la pata seleccionada respecto a su natural
+- `'5'` **captura la pose actual de la pata seleccionada como su nuevo 0** y lo guarda en NVS
+- `'0'` todas a su **natural** (0° relativo)
+
+### Marcha (test de caminado)
+
+- `'6'` **iniciar/parar** la marcha
+- `'7'` cambiar **patrón**: `TROT` (diagonales sincronizadas, por defecto) ↔ `WAVE` (una pata a la vez)
+- `'8'` **más rápido** · `'9'` **más lento** (`gait.c`: `GAIT_AMP_DEG=35`, paso 4–40 ms/grado)
+- Mientras camina, las teclas de posición (`1`‑`5`, `*`, `#`) se ignoran; `'6'` o `'0'` lo paran.
 
 Qué validar en hardware:
 
-1. **Canal**: la pata física que se mueve debe ser la del log (`FR dlch12`, etc.). Si no, cambia
+1. **Canal**: la pata física que se mueve debe ser la del log (`FR ch12`, etc.). Si no, cambia
    el canal en `LEGS[]` (`main/legs.c`).
-2. **Sentido/invert**: si una pata izquierda (FL/BL) barre al revés que su espejo derecho,
+2. **Sentido/invert**: si una pata izquierda (FL/BL) se mueve al revés que su espejo derecho,
    cambia `invert` (true↔false) solo para esa pata en `LEGS[]`.
-3. **Rango mecánico**: que +40°/−40° no truenen ni choquen piezas; si hace falta, ajusta
-   `TEST_STEP_DEG` y vuelve a probar.
+3. **Rango mecánico**: al subir/bajar con `*`/`#` que no truene ni choque piezas; si hace falta,
+   ajusta el recorrido dentro de ±90° del driver.
 
-Después de calibrar, se habilitan las marchas (wave/trot), giro y WiFi (roadmap).
+Después de posicionar/calibrar, se habilitan las marchas (wave/trot), giro y WiFi (roadmap).
 
 ## Diagnóstico rápido (si no responde ningún servo)
 

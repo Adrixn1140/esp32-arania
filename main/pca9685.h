@@ -42,6 +42,15 @@ esp_err_t pca9685_set_angle(i2c_master_dev_handle_t dev_handle, uint8_t channel,
  */
 esp_err_t pca9685_channel_off(i2c_master_dev_handle_t dev_handle, uint8_t channel);
 
+/**
+ * @brief Lee el pulso programado actualmente en un canal.
+ *
+ * @param[out] pulse_us  Duracion de pulso en microsegundos si la salida esta
+ *                       activa. Si el canal esta en "full off" devuelve
+ *                       ESP_ERR_INVALID_STATE y no toca `pulse_us`.
+ */
+esp_err_t pca9685_read_channel_us(i2c_master_dev_handle_t dev_handle, uint8_t channel, uint16_t *pulse_us);
+
 #ifdef __cplusplus
 }
 #endif

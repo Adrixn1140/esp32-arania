@@ -146,3 +146,24 @@ esp_err_t pca9685_channel_off(i2c_master_dev_handle_t dev, uint8_t channel)
     uint8_t buf[5] = {reg, 0, 0, 0, 0x10}; /* OFF bit set -> fully off */
     return i2c_master_transmit(dev, buf, sizeof(buf), PCA9685_TIMEOUT_MS);
 }
+
+esp_err_t pca9685_read_channel_us(i2c_master_dev_handle_t dev, uint8_t channel, uint16_t *pulse_us)
+{
+    if (channel > 15 || pulse_us == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t reg = PCA9685_LED0_ON_L + 4u * channel;
+    uint8_t buf[4];
+    esp_err_t err = i2c_master_transmit_receive(dev, &reg, 1, buf, sizeof(buf), PCA9685_TIMEOUT_MS);
+    if (err != ESP_OK) {
+        return err;
+    }
+    uint16_t on = (uint16_t)buf[0] | (uint16_t)((buf[1] & 0x0F) << 8);
+    uint16_t off = (uint16_t)buf[2] | (uint16_t)((buf[3] & 0x0F) << 8);
+    (void)on;
+    if (off & 0x1000) { /* FULL_OFF bit 12 */
+        return ESP_ERR_INVALID_STATE;
+    }
+    *pulse_us = (uint16_t)(((uint32_t)off) * 20000ULL / PWM_PERIOD);
+    return ESP_OK;
+}

@@ -24,11 +24,12 @@ CMakeLists.txt            # project(esp32_arania)
 sdkconfig.defaults        # CONFIG_IDF_TARGET="esp32"
 main/
   app_main.c              # init I2C + PCA9685 + keypad; MODO CALIBRACION por teclas
-  legs.c/h                # LEGS[] (ch12=FR, ch13=BR, ch14=FL, ch15=BL) + invert; set_angle/rest
+  legs.c/h                # LEGS[] (ch12=FR, ch13=FL, ch14=BL, ch15=BR) + invert/offset; set_angle/rest
   test_mode.c/h           # barrido lento de una pata o de las 4 (sincronizado)
   pca9685.c/h             # driver PCA9685 (I2C 0x40): init 50Hz, set_angle -90..+90
   keypad.c/h              # driver HX-543: scan columnas en LOW + filas pull-up, debounce
-  CMakeLists.txt          # SRCS: app_main.c legs.c test_mode.c pca9685.c keypad.c
+  gait.c/h                # marcha test: WAVE / TROT sobre neutro capturado (tarea propia)
+  CMakeLists.txt          # SRCS: app_main.c legs.c test_mode.c pca9685.c keypad.c gait.c
 README.md                 # wiring, modo calibracion, teclas, comandos
 ```
 
@@ -38,19 +39,25 @@ README.md                 # wiring, modo calibracion, teclas, comandos
 - No añadir comentarios salvo que aporten contexto (p. ej. fórmulas del datasheet).
 - Tabla de patas y su `invert` viven SOLO en `main/legs.c` (`LEGS[]`); el resto del código
   usa `legs_set_angle(dev, idx, grados)` / `legs_rest_all(dev)` y `legs_name()`/`legs_channel()`.
-- Mapeo: `LEGS[]` = ch12 FR, ch13 BR, ch14 FL, ch15 BL. Patas izquierdas con `invert = true`.
-- Ángulos del driver: **-90..+90**, **neutro 0°** (sprawling, patas abiertas).
-- **Estado actual: MODO CALIBRACION.** Al encender nada se mueve; cada tecla mueve una sola
-  pata (lenta). Las marchas/gait están en `git history` / roadmap y se montan sobre `legs.c`.
+- Mapeo: `LEGS[]` = ch12 FR, ch13 FL, ch14 BL, ch15 BR. Patas izquierdas con `invert = true`.
+- Ángulos del driver: **-90..+90**, **neutro 0°** (posta natural capturada).
+- **Estado actual: NEUTRO CAPTURADO EN NVS.** Al encender carga (o captura y guarda) los
+  offsets de neutral por pata desde los pulsos del PCA9685 y posiciona las patas solas en esa
+  pose. Tecla `5` recaptura la pata seleccionada como su 0.
 - `pca9685_set_angle(dev, ch, grados)` acepta `int16_t` y acota fuera de rango.
 
-## Modo calibración (test)
+## Neutral capturado (test)
 
-- Al encender: `test_mode_boot_sequence()` mueve cada pata una por una sin teclado (para
-  verificar que responden), y luego queda en reposo esperando teclas.
-- Teclas: 1=FR, 2=BR, 3=FL, 4=BL (una pata sola, lenta), 5=las 4 juntas, 0=reposo.
-- Cada barrido: 0° → +40° → 0° → −40° → 0° con `TEST_MS_PER_DEG=30` y vuelve a neutro.
-- Si una pata física no corresponde al canal, o una izquierda barre al revés de su espejo
+- Al encender: `nvs_load_or_capture()` carga offsets de NVS o, si no existen, los captura de
+  los registros de los canales 12-15 del PCA9685 (`pca9685_read_channel_us`) y los guarda;
+  luego `legs_rest_all()` deja las patas en la pose natural. Repite en cada arranque.
+- Teclas: `1..4` seleccionan FR/FL/BL/BR (`legs.c`), `*`/`#` restan/suman 5° a la
+  seleccionada respecto a su natural, `5` captura la pose actual de la seleccionada como su
+  nuevo 0 (y guarda en NVS), `0` lleva todas a natural.
+- Marcha: `gait.c` crea una tarea (`gait_start`) que mueve sobre el neutro capturado.
+  `6` start/stop, `7` patron TROT/WAVE, `8` mas rapido, `9` mas lento. Mientras camina, las
+  teclas de posicion se ignoran.
+- Si una pata física no corresponde al canal, o una izquierda se mueve al revés de su espejo
   derecho: ajustar `LEGS[]` en `main/legs.c`, no el cableado.
 
 ## Hardware / cableado (no cambiar sin confirmar con el usuario)
@@ -58,7 +65,7 @@ README.md                 # wiring, modo calibracion, teclas, comandos
 | Componente | Conexión |
 |---|---|
 | PCA9685 | SDA→GPIO21, SCL→GPIO22, VDD→3V3, GND común |
-| Servos | V+→5V externo, ch12=FR, ch13=BR, ch14=FL, ch15=BL |
+| Servos | V+→5V externo, ch12=FR, ch13=FL, ch14=BL, ch15=BR |
 | Teclado HX-543 | conector 1..7 → GPIO 13(R1) 14(R2) 27(R3) 26(R4) 25(C1) 33(C2) 32(C3) |
 
 Si una tecla sale intercambiada en el monitor: ajustar `s_keys`/GPIOS en `main/keypad.c`,

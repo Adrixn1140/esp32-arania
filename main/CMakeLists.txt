@@ -5,6 +5,11 @@ idf_component_register(
         "test_mode.c"
         "pca9685.c"
         "keypad.c"
+        "gait.c"
     INCLUDE_DIRS
         "."
+    REQUIRES
+        nvs_flash
+        esp_driver_i2c
+        esp_driver_gpio
 )
